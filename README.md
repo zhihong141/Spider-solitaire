@@ -3,8 +3,8 @@
 
 ## Minimalist theme, no tons of features, just the basic.
 
-## Play Here
-[Try it here!](https://zhihong141.github.io/Spider-solitaire/) 
+## Link to Play
+[Have Fun!](https://zhihong141.github.io/Spider-solitaire/) 
 
 ## How to Run Locally 
 1. Clone this repository. 
