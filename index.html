@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<title>Spider</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  * { -webkit-tap-highlight-color: transparent; }
+  .card, .empty-slot { -webkit-touch-callout: none; }
+
+  :root {
+    --bg: #f5f5f0; --fg: #111; --card-bg: #fff;
+    --card-border: #d0d0cc; --muted: #999;
+    --sidebar: 72px;  /* width of right sidebar in landscape */
+  }
+
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: 'DM Sans', sans-serif; font-size: 13px;
+    width: 100dvw; height: 100dvh;
+    overflow: hidden; user-select: none;
+    display: flex; flex-direction: column;
+  }
+
+  /* ════════════════════════════════════════════════════
+     PORTRAIT  (default — stacked layout)
+  ════════════════════════════════════════════════════ */
+
+  /* ── Header ── */
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 16px 8px; border-bottom: 1px solid var(--card-border);
+    flex-shrink: 0;
+  }
+  .logo {
+    font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500;
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .stats {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    color: var(--muted); display: flex; gap: 8px; align-items: center;
+    flex-wrap: wrap; justify-content: flex-end;
+  }
+  .stats b { color: var(--fg); font-weight: 500; }
+  .stat-sep { color: var(--card-border); }
+
+  /* ── Piles ── */
+  #piles { display: flex; gap: 4px; padding: 6px 16px 5px; flex-shrink: 0; }
+  .dot { flex: 1; height: 3px; border-radius: 2px; background: var(--card-border); transition: background .3s; }
+  .dot.done { background: var(--fg); }
+
+  /* ── Board ── */
+  #board {
+    flex: 1; padding: 6px 6px 4px;
+    display: grid; grid-template-columns: repeat(10, 1fr);
+    gap: 4px; align-items: start; overflow: hidden;
+    touch-action: none;
+  }
+  .col { display: flex; flex-direction: column; position: relative; }
+
+  /* ── Empty slot ── */
+  .empty-slot {
+    aspect-ratio: 5/7; border: 1.5px dashed var(--card-border);
+    border-radius: 5px; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .empty-slot.can-drop  { border-color: #888; background: rgba(0,0,0,0.03); }
+  .empty-slot.hint-dest { border-color: var(--fg); background: rgba(0,0,0,0.04);
+                          animation: hintPulse 1s ease-in-out infinite; }
+
+  /* ── Card ── */
+  .card {
+    width: 100%; aspect-ratio: 5/7; border-radius: 5px;
+    border: 1px solid var(--card-border); background: var(--card-bg);
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 2px 3px; cursor: pointer; position: relative; flex-shrink: 0;
+    transition: border-color .1s, box-shadow .1s;
+  }
+  .card.face-down {
+    background: repeating-linear-gradient(
+      45deg, #e8e8e4, #e8e8e4 3px, #eeede9 3px, #eeede9 6px);
+    cursor: default;
+  }
+  .card-label { font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500; line-height: 1; }
+  .card-label.bot { align-self: flex-end; transform: rotate(180deg); }
+  .card-suit {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; font-size: 10px; opacity: 0.15; pointer-events: none;
+  }
+  .card.selected { border-color: var(--fg); box-shadow: 0 0 0 1.5px var(--fg); z-index: 5; }
+  .card.in-group  { border-color: #888; box-shadow: 0 0 0 1px #aaa; }
+  .card.can-drop  { border-color: var(--fg); box-shadow: 0 0 0 1.5px var(--fg); }
+
+  /* ── Card flip ── */
+  @keyframes cardFlip {
+    0%   { transform: scaleX(1); background: repeating-linear-gradient(45deg,#e8e8e4,#e8e8e4 3px,#eeede9 3px,#eeede9 6px); }
+    49%  { transform: scaleX(0); background: repeating-linear-gradient(45deg,#e8e8e4,#e8e8e4 3px,#eeede9 3px,#eeede9 6px); }
+    50%  { transform: scaleX(0); background: var(--card-bg); }
+    100% { transform: scaleX(1); background: var(--card-bg); }
+  }
+  .card.flipping { animation: cardFlip .3s ease-in-out forwards; }
+
+  /* ── Deal drop ── */
+  @keyframes dealDrop {
+    from { opacity: 0; transform: translateY(-18px) scaleY(0.85); }
+    to   { opacity: 1; transform: translateY(0) scaleY(1); }
+  }
+  .card.dealing { animation: dealDrop .22s cubic-bezier(.22,.68,0,1.2) both; }
+
+  /* ── Hint ── */
+  @keyframes hintPulse {
+    0%,100% { box-shadow: 0 0 0 1.5px rgba(0,0,0,0.6); }
+    50%     { box-shadow: 0 0 0 3px rgba(0,0,0,0.15); }
+  }
+  @keyframes hintPulseDest {
+    0%,100% { box-shadow: 0 0 0 1.5px rgba(0,0,0,0.2); border-color: #aaa; }
+    50%     { box-shadow: 0 0 0 3px rgba(0,0,0,0.12); border-color: var(--fg); }
+  }
+  .card.hint-src     { animation: hintPulse .85s ease-in-out infinite; border-color: var(--fg); z-index: 6; }
+  .card.hint-src-grp { animation: hintPulse .85s ease-in-out infinite; border-color: #555; }
+  .card.hint-dest    { animation: hintPulseDest .85s ease-in-out infinite; }
+
+  /* ── Footer (portrait) ── */
+  #sidebar { display: none; }
+  footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 8px 8px calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--card-border); flex-shrink: 0;
+  }
+  footer button:last-child { grid-column: 1 / -1; }
+  button {
+    flex: 1; padding: 11px 6px; border-radius: 5px;
+    font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 500;
+    letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer;
+    border: 1px solid var(--card-border); background: var(--card-bg); color: var(--fg);
+    transition: opacity .12s; touch-action: manipulation;
+  }
+  button.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  button:disabled { opacity: 0.3; cursor: default; }
+  button:not(:disabled):active { opacity: 0.65; }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 80px; left: 50%;
+    transform: translateX(-50%) translateY(6px);
+    background: var(--fg); color: var(--bg);
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 6px 14px; border-radius: 4px;
+    opacity: 0; pointer-events: none;
+    transition: opacity .15s, transform .15s;
+    white-space: nowrap; z-index: 50;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ── Win ── */
+  #win {
+    position: fixed; inset: 0; background: #111;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 8px; z-index: 300;
+    opacity: 0; pointer-events: none; transition: opacity .4s;
+  }
+  #win.show { opacity: 1; pointer-events: all; }
+  .win-title {
+    font-family: 'DM Mono', monospace; font-size: 20px; font-weight: 500;
+    letter-spacing: 0.1em; text-transform: uppercase; color: #fff;
+  }
+  .win-sub {
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    color: rgba(255,255,255,0.35); letter-spacing: 0.06em; margin-bottom: 4px;
+  }
+  .win-streak {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    color: rgba(255,255,255,0.2); letter-spacing: 0.06em; margin-bottom: 24px;
+  }
+  #win button {
+    flex: unset; width: auto; padding: 11px 36px;
+    background: #fff; color: #111; border: none; border-radius: 4px;
+    font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    cursor: pointer; transition: opacity .12s;
+  }
+  #win button:active { opacity: 0.75; }
+
+  /* ── Handicap screen ── */
+  #hc-screen {
+    position: fixed; inset: 0; background: #111;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 400; transition: opacity .35s;
+  }
+  #hc-screen.hide { opacity: 0; pointer-events: none; }
+  .hc-title {
+    font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: rgba(255,255,255,0.35); margin-bottom: 8px;
+  }
+  .hc-logo {
+    font-family: 'DM Mono', monospace; font-size: 26px; font-weight: 500;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: #fff; margin-bottom: 6px;
+  }
+  .hc-best {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    color: rgba(255,255,255,0.2); letter-spacing: 0.08em;
+    margin-bottom: 32px; height: 14px;
+  }
+  .hc-label {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    color: rgba(255,255,255,0.3); margin-bottom: 16px;
+  }
+  .hc-dots { display: flex; gap: 10px; margin-bottom: 10px; }
+  .hc-dot {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.25); background: transparent;
+    cursor: pointer; transition: background .15s, border-color .15s, transform .1s;
+    touch-action: manipulation;
+  }
+  .hc-dot.active { background: #fff; border-color: #fff; }
+  .hc-dot:active { transform: scale(1.2); }
+  .hc-desc {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    color: rgba(255,255,255,0.25); letter-spacing: 0.08em;
+    margin-bottom: 36px; height: 14px;
+  }
+  .hc-start {
+    font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: #111; background: #fff; border: none; border-radius: 4px;
+    padding: 13px 36px; cursor: pointer; transition: opacity .12s; flex: unset;
+    touch-action: manipulation;
+  }
+  .hc-start:active { opacity: 0.75; }
+
+  /* ════════════════════════════════════════════════════
+     LANDSCAPE  — restructure into horizontal layout
+     Board takes all available width.
+     Sidebar on right: logo + stats + piles + buttons.
+  ════════════════════════════════════════════════════ */
+  @media (orientation: landscape) and (max-height: 600px) {
+
+    body {
+      flex-direction: row;
+    }
+
+    /* Hide portrait header/piles/footer */
+    header  { display: none; }
+    #piles  { display: none; }
+    footer  { display: none; }
+
+    /* Board fills all space left of sidebar */
+    #board {
+      flex: 1;
+      padding: 6px 4px 6px calc(6px + env(safe-area-inset-left));
+      gap: 3px;
+      align-items: start;
+      overflow: hidden;
+      height: 100dvh;
+    }
+
+    /* Sidebar */
+    #sidebar {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      width: var(--sidebar);
+      height: 100dvh;
+      padding: 8px 6px calc(8px + env(safe-area-inset-bottom)) 6px;
+      padding-right: calc(6px + env(safe-area-inset-right));
+      border-left: 1px solid var(--card-border);
+      gap: 5px;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .sb-logo {
+      font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--fg); text-align: center;
+      padding-bottom: 5px;
+      border-bottom: 1px solid var(--card-border);
+      flex-shrink: 0;
+    }
+
+    .sb-stats {
+      font-family: 'DM Mono', monospace; font-size: 8px;
+      color: var(--muted); text-align: center;
+      display: flex; flex-direction: column; gap: 2px;
+      flex-shrink: 0;
+    }
+    .sb-stats b { color: var(--fg); font-weight: 500; }
+
+    .sb-piles {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 3px; padding: 2px 0;
+      flex-shrink: 0;
+    }
+    .sb-piles .dot {
+      flex: unset; width: 100%; height: 3px;
+      border-radius: 2px; background: var(--card-border);
+      transition: background .3s;
+    }
+    .sb-piles .dot.done { background: var(--fg); }
+
+    /* Spacer pushes buttons to bottom */
+    .sb-spacer { flex: 1; }
+
+    /* Sidebar buttons — full width, compact */
+    .sb-btn {
+      display: block; width: 100%;
+      padding: 8px 4px; border-radius: 5px;
+      font-family: 'DM Mono', monospace; font-size: 8px; font-weight: 500;
+      letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer;
+      border: 1px solid var(--card-border); background: var(--card-bg); color: var(--fg);
+      transition: opacity .12s; touch-action: manipulation;
+      text-align: center; flex-shrink: 0;
+    }
+    .sb-btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    .sb-btn:disabled { opacity: 0.3; cursor: default; }
+    .sb-btn:not(:disabled):active { opacity: 0.65; }
+
+    /* Toast position in landscape */
+    #toast { bottom: 50px; }
+  }
+
+  /* Landscape on tablets / larger phones — keep portrait layout */
+  @media (orientation: landscape) and (min-height: 600px) {
+    footer {
+      display: flex;
+      grid-template-columns: unset;
+      padding: 8px;
+    }
+    footer button:last-child { grid-column: unset; }
+  }
+
+  /* Touch active states */
+  @media (pointer: coarse) {
+    .card:active:not(.face-down) { opacity: 0.8; transform: scale(0.96); }
+    .empty-slot:active { opacity: 0.75; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Handicap screen ── -->
+<div id="hc-screen">
+  <div class="hc-title">Spider Solitaire</div>
+  <div class="hc-logo">Spider</div>
+  <div class="hc-best" id="hc-best"></div>
+  <div class="hc-label">Assist level</div>
+  <div class="hc-dots" id="hc-dots"></div>
+  <div class="hc-desc" id="hc-desc"></div>
+  <button class="hc-start" onclick="startWithHandicap()">Start Game</button>
+</div>
+
+<!-- Portrait header -->
+<header>
+  <div class="logo">Spider</div>
+  <div class="stats">
+    <span>moves <b id="s-moves">0</b></span>
+    <span class="stat-sep">·</span>
+    <span>sets <b id="s-sets">0</b>/8</span>
+    <span class="stat-sep">·</span>
+    <span id="s-time">0:00</span>
+  </div>
+</header>
+
+<!-- Portrait piles -->
+<div id="piles">
+  <div class="dot" id="p0"></div><div class="dot" id="p1"></div>
+  <div class="dot" id="p2"></div><div class="dot" id="p3"></div>
+  <div class="dot" id="p4"></div><div class="dot" id="p5"></div>
+  <div class="dot" id="p6"></div><div class="dot" id="p7"></div>
+</div>
+
+<!-- Board (shared) -->
+<div id="board"></div>
+
+<!-- Landscape sidebar (hidden in portrait) -->
+<div id="sidebar">
+  <div class="sb-logo">Spider</div>
+  <div class="sb-stats">
+    <div>moves <b id="sb-moves">0</b></div>
+    <div>sets <b id="sb-sets">0</b>/8</div>
+    <div id="sb-time">0:00</div>
+  </div>
+  <div class="sb-piles" id="sb-piles">
+    <div class="dot" id="sp0"></div><div class="dot" id="sp1"></div>
+    <div class="dot" id="sp2"></div><div class="dot" id="sp3"></div>
+    <div class="dot" id="sp4"></div><div class="dot" id="sp5"></div>
+    <div class="dot" id="sp6"></div><div class="dot" id="sp7"></div>
+  </div>
+  <div class="sb-spacer"></div>
+  <button class="sb-btn" id="sb-deal" onclick="deal()">Deal</button>
+  <button class="sb-btn" id="sb-undo" onclick="undo()">Undo</button>
+  <button class="sb-btn" onclick="showHint()">Hint</button>
+  <button class="sb-btn primary" onclick="playAgain()">New</button>
+</div>
+
+<div id="toast"></div>
+
+<!-- Win overlay -->
+<div id="win">
+  <div class="win-title">Completed</div>
+  <div class="win-sub" id="win-sub"></div>
+  <div class="win-streak" id="win-streak"></div>
+  <button onclick="playAgain()">Play Again</button>
+</div>
+
+<!-- Portrait footer -->
+<footer>
+  <button id="btn-deal" onclick="deal()">Deal</button>
+  <button id="btn-undo" onclick="undo()">Undo</button>
+  <button onclick="showHint()">Hint</button>
+  <button class="primary" onclick="playAgain()">New Game</button>
+</footer>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let cols=[], stock=[], sel=null, hint=null, hintTimer=null;
+let moves=0, sets=0, handicap=5;
+let undoStack=[];
+let timerInterval=null, elapsedSecs=0;
+let flipSet=new Set(), dealSet=new Set();
+let bestMoves =parseInt(localStorage.getItem('sp_bestMoves') ||'0');
+let winStreak  =parseInt(localStorage.getItem('sp_winStreak') ||'0');
+let gamesWon   =parseInt(localStorage.getItem('sp_gamesWon')  ||'0');
+
+const LABEL=v=>v===1?'A':v===11?'J':v===12?'Q':v===13?'K':String(v);
+
+// ── Handicap screen ────────────────────────────────────────────────────────
+const HC_DESCS=['','Pure chaos. Good luck.','Minimal help.','Slightly friendlier.',
+  'Some breathing room.','Balanced.','A few extra breaks.','Noticeably easier.',
+  'Generous assist.','Heavy assist.','Max assist. Win often.'];
+
+(function initHc() {
+  const dotsEl=document.getElementById('hc-dots');
+  const descEl=document.getElementById('hc-desc');
+  const bestEl=document.getElementById('hc-best');
+  const parts=[];
+  if(gamesWon>0)  parts.push('wins '+gamesWon);
+  if(winStreak>0) parts.push('streak '+winStreak);
+  if(bestMoves>0) parts.push('best '+bestMoves+' moves');
+  bestEl.textContent=parts.join('  ·  ');
+
+  function setLevel(n){
+    handicap=n; descEl.textContent=HC_DESCS[n];
+    Array.from(dotsEl.children).forEach((d,i)=>d.classList.toggle('active',i<n));
+  }
+  for(let i=1;i<=10;i++){
+    const d=document.createElement('div'); d.className='hc-dot';
+    d.addEventListener('click',()=>setLevel(i));
+    d.addEventListener('mouseenter',()=>{ descEl.textContent=HC_DESCS[i]; });
+    d.addEventListener('mouseleave',()=>{ descEl.textContent=HC_DESCS[handicap]; });
+    dotsEl.appendChild(d);
+  }
+  setLevel(5);
+})();
+
+function startWithHandicap(){
+  document.getElementById('hc-screen').classList.add('hide');
+  newGame();
+}
+
+// ── Timer ──────────────────────────────────────────────────────────────────
+function startTimer(){
+  stopTimer(); elapsedSecs=0;
+  timerInterval=setInterval(()=>{
+    elapsedSecs++;
+    const t=formatTime(elapsedSecs);
+    document.getElementById('s-time').textContent=t;
+    document.getElementById('sb-time').textContent=t;
+  },1000);
+}
+function stopTimer(){ clearInterval(timerInterval); }
+function formatTime(s){ return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+
+// ── Shuffle / deal ─────────────────────────────────────────────────────────
+function shuffle(arr){
+  const a=[...arr];
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
+
+function makeFairDeal(){
+  const h=handicap;
+  const iters=Math.round((h-1)/9*200);
+  const seeds=Math.round((h-1)/9*7);
+  const minDist=1+Math.round((h-1)/9*8);
+  function pool(){const p=[];for(let v=1;v<=13;v++)for(let s=0;s<8;s++)p.push(v);return p;}
+  function pick(arr,idx){if(idx===undefined)idx=Math.floor(Math.random()*arr.length);return arr.splice(idx,1)[0];}
+  const sizes=[6,6,6,6,5,5,5,5,5,5];
+  const remaining=pool();
+  const tabCols=Array.from({length:10},()=>[]);
+  for(let c=0;c<10;c++){
+    const fd=sizes[c]-1; let last=-1;
+    for(let k=0;k<fd;k++){
+      let t=0,idx=Math.floor(Math.random()*remaining.length);
+      while(remaining[idx]===last&&t<30){idx=Math.floor(Math.random()*remaining.length);t++;}
+      last=remaining[idx]; tabCols[c].push(pick(remaining,idx));
+    }
+  }
+  const topCards=[];
+  for(let c=0;c<10;c++) topCards.push(pick(remaining,Math.floor(Math.random()*remaining.length)));
+  function topScore(tops){
+    let pairs=0;const freq={};
+    tops.forEach(v=>{freq[v]=(freq[v]||0)+1;for(let b=0;b<10;b++)if(tops[b]===v+1)pairs++;});
+    return pairs*10-Object.values(freq).filter(f=>f>=3).length*8;
+  }
+  for(let iter=0;iter<iters;iter++){
+    const col=Math.floor(Math.random()*10),rIdx=Math.floor(Math.random()*remaining.length);
+    const nt=[...topCards];nt[col]=remaining[rIdx];
+    if(topScore(nt)>topScore(topCards)){remaining[rIdx]=topCards[col];topCards[col]=nt[col];}
+  }
+  for(let c=0;c<10;c++) tabCols[c].push(topCards[c]);
+  shuffle([0,1,2,3,4,5,6,7,8,9]).slice(0,seeds).forEach(c=>{
+    const tv=tabCols[c][tabCols[c].length-1],wb=tv+1;
+    if(wb<=13){const idx=remaining.indexOf(wb);
+      if(idx!==-1){const old=tabCols[c][tabCols[c].length-2];remaining.splice(idx,1);remaining.push(old);tabCols[c][tabCols[c].length-2]=wb;}}
+  });
+  const stockArr=[];
+  for(let r=0;r<5;r++){
+    const rc=[],used=new Set();
+    for(let k=0;k<minDist&&remaining.length>0;k++){
+      let idx=-1;
+      for(let a=0;a<50;a++){const i=Math.floor(Math.random()*remaining.length);if(!used.has(remaining[i])){idx=i;break;}}
+      if(idx===-1)idx=Math.floor(Math.random()*remaining.length);
+      used.add(remaining[idx]);rc.push(pick(remaining,idx));
+    }
+    while(rc.length<10&&remaining.length>0)rc.push(pick(remaining,Math.floor(Math.random()*remaining.length)));
+    stockArr.push(...shuffle(rc));
+  }
+  return{tabCols,stock:stockArr};
+}
+
+// ── Undo ───────────────────────────────────────────────────────────────────
+function snapshot(){
+  return{cols:cols.map(col=>col.map(c=>({...c}))),stock:stock.map(c=>({...c})),moves,sets,elapsedSecs};
+}
+function undo(){
+  if(!undoStack.length){toast('Nothing to undo');return;}
+  const s=undoStack.pop();
+  cols=s.cols;stock=s.stock;moves=s.moves;sets=s.sets;elapsedSecs=s.elapsedSecs;
+  sel=null;clearHint();
+  for(let i=0;i<8;i++){
+    document.getElementById('p'+i).classList.toggle('done',i<sets);
+    document.getElementById('sp'+i).classList.toggle('done',i<sets);
+  }
+  render();updateUndoBtns();
+}
+function updateUndoBtns(){
+  const d=undoStack.length===0;
+  document.getElementById('btn-undo').disabled=d;
+  document.getElementById('sb-undo').disabled=d;
+}
+
+// ── New game ───────────────────────────────────────────────────────────────
+function playAgain(){
+  document.getElementById('hc-screen').classList.remove('hide');
+  document.getElementById('win').classList.remove('show');
+  stopTimer();
+}
+function newGame(){
+  const{tabCols,stock:st}=makeFairDeal();
+  cols=Array.from({length:10},()=>[]);
+  moves=0;sets=0;sel=null;undoStack=[];flipSet=new Set();dealSet=new Set();
+  clearHint();
+  for(let c=0;c<10;c++) tabCols[c].forEach((v,i)=>cols[c].push({v,faceUp:i===tabCols[c].length-1}));
+  stock=st.map(v=>({v}));
+  for(let i=0;i<8;i++){
+    document.getElementById('p'+i).classList.remove('done');
+    document.getElementById('sp'+i).classList.remove('done');
+  }
+  document.getElementById('win').classList.remove('show');
+  document.getElementById('s-time').textContent='0:00';
+  document.getElementById('sb-time').textContent='0:00';
+  updateUndoBtns();
+  startTimer();render();
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function flipTop(c){
+  const col=cols[c];
+  if(col.length>0&&!col[col.length-1].faceUp){col[col.length-1].faceUp=true;flipSet.add(c+'-'+(col.length-1));}
+}
+function isRun(c,idx){
+  const col=cols[c];
+  if(idx<0||idx>=col.length||!col[idx].faceUp)return false;
+  for(let i=idx;i<col.length-1;i++)if(!col[i+1].faceUp||col[i].v!==col[i+1].v+1)return false;
+  return true;
+}
+function canPlace(mv,tv){return mv===tv-1;}
+function isComplete(c){
+  const col=cols[c];if(col.length<13)return false;
+  const top=col.slice(-13);if(top[0].v!==13)return false;
+  for(let i=0;i<12;i++)if(top[i].v!==top[i+1].v+1)return false;
+  return true;
+}
+function allFaceUp(){return cols.every(col=>col.every(c=>c.faceUp));}
+function hasAnyMove(){
+  for(let fromC=0;fromC<10;fromC++){
+    for(let fi=0;fi<cols[fromC].length;fi++){
+      if(!isRun(fromC,fi))continue;
+      const mv=cols[fromC][fi];
+      for(let toC=0;toC<10;toC++){
+        if(toC===fromC)continue;
+        const t=cols[toC],top=t.length>0?t[t.length-1]:null;
+        if(top===null||canPlace(mv.v,top.v))return true;
+      }break;
+    }
+  }
+  return stock.length>=10;
+}
+
+// ── Auto-complete ──────────────────────────────────────────────────────────
+function tryAutoComplete(){
+  if(!allFaceUp()||sets===8)return;
+  for(let c=0;c<10;c++){
+    if(isComplete(c)){
+      cols[c]=cols[c].slice(0,-13);sets++;
+      document.getElementById('p'+(sets-1)).classList.add('done');
+      document.getElementById('sp'+(sets-1)).classList.add('done');
+      toast('Auto · +1 set · '+sets+'/8');
+      render();
+      if(sets===8){triggerWin();return;}
+      setTimeout(tryAutoComplete,400);return;
+    }
+  }
+}
+
+// ── Move ───────────────────────────────────────────────────────────────────
+function tryMove(fromC,fromIdx,toC){
+  const moving=cols[fromC].slice(fromIdx);
+  const target=cols[toC];
+  const topCard=target.length>0?target[target.length-1]:null;
+  if(topCard!==null&&!canPlace(moving[0].v,topCard.v))return false;
+  undoStack.push(snapshot());if(undoStack.length>40)undoStack.shift();
+  cols[fromC]=cols[fromC].slice(0,fromIdx);
+  cols[toC]=[...target,...moving];
+  flipTop(fromC);moves++;
+  if(isComplete(toC)){
+    cols[toC]=cols[toC].slice(0,-13);flipTop(toC);sets++;
+    document.getElementById('p'+(sets-1)).classList.add('done');
+    document.getElementById('sp'+(sets-1)).classList.add('done');
+    toast('+1 set · '+sets+'/8');
+  }
+  updateUndoBtns();return true;
+}
+
+// ── Deal ───────────────────────────────────────────────────────────────────
+function deal(){
+  if(stock.length<10)return;
+  undoStack.push(snapshot());if(undoStack.length>40)undoStack.shift();
+  sel=null;clearHint();dealSet=new Set();
+  for(let c=0;c<10;c++){cols[c].push({v:stock.shift().v,faceUp:true});dealSet.add(c);}
+  moves++;updateUndoBtns();render();
+  setTimeout(()=>{dealSet=new Set();},400);
+}
+
+// ── Win ────────────────────────────────────────────────────────────────────
+function triggerWin(){
+  stopTimer();gamesWon++;winStreak++;
+  if(!bestMoves||moves<bestMoves)bestMoves=moves;
+  localStorage.setItem('sp_bestMoves',bestMoves);
+  localStorage.setItem('sp_winStreak',winStreak);
+  localStorage.setItem('sp_gamesWon',gamesWon);
+  document.getElementById('win-sub').textContent=moves+' moves · '+formatTime(elapsedSecs);
+  document.getElementById('win-streak').textContent='streak '+winStreak+'  ·  best '+bestMoves+'  ·  wins '+gamesWon;
+  setTimeout(()=>document.getElementById('win').classList.add('show'),200);
+}
+
+// ── Clicks ─────────────────────────────────────────────────────────────────
+function clickCard(c,i){
+  const card=cols[c][i];if(!card||!card.faceUp)return;
+  clearHint();
+  if(!sel){if(isRun(c,i))sel={col:c,idx:i};}
+  else{
+    if(sel.col===c&&sel.idx===i){sel=null;}
+    else if(sel.col===c){sel=isRun(c,i)?{col:c,idx:i}:null;}
+    else{if(!tryMove(sel.col,sel.idx,c))toast('Invalid move');sel=null;}
+  }
+  render();
+  if(sets===8){triggerWin();return;}
+  if(!hasAnyMove())setTimeout(()=>toast('No moves left!'),200);
+  setTimeout(tryAutoComplete,100);
+}
+function clickEmpty(c){
+  if(!sel)return;clearHint();
+  tryMove(sel.col,sel.idx,c);sel=null;render();
+  if(sets===8){triggerWin();return;}
+  setTimeout(tryAutoComplete,100);
+}
+
+// ── Hint ───────────────────────────────────────────────────────────────────
+function findBestMove(){
+  let best=null,bs=-Infinity;
+  for(let fromC=0;fromC<10;fromC++){
+    const col=cols[fromC];
+    for(let fi=0;fi<col.length;fi++){
+      if(!isRun(fromC,fi))continue;
+      const mv=col.slice(fi),mt=mv[0];
+      for(let toC=0;toC<10;toC++){
+        if(toC===fromC)continue;
+        const tgt=cols[toC],tc=tgt.length>0?tgt[tgt.length-1]:null;
+        if(tc!==null&&!canPlace(mt.v,tc.v))continue;
+        let sc=0;
+        if(fi>0&&!col[fi-1].faceUp)sc+=500;
+        if(tc!==null){sc+=100;if(tgt.length>=2&&tgt[tgt.length-2].v===tc.v+1)sc+=200;}else sc-=50;
+        sc+=mv.length*10;
+        const sim=[...tgt,...mv];
+        if(sim.length>=13){const t13=sim.slice(-13);if(t13[0].v===13){let ok=true;for(let k=0;k<12;k++)if(t13[k].v!==t13[k+1].v+1){ok=false;break;}if(ok)sc+=1000;}}
+        if(sc>bs){bs=sc;best={fromC,fromIdx:fi,toC};}
+      }
+      if(best&&best.fromC===fromC)break;
+    }
+  }
+  return best;
+}
+function clearHint(){clearTimeout(hintTimer);hint=null;}
+function showHint(){
+  clearHint();sel=null;
+  const h=findBestMove();
+  if(!h){toast('No moves available');render();return;}
+  hint=h;render();
+  hintTimer=setTimeout(()=>{hint=null;render();},3000);
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+let _tt;
+function toast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.classList.add('show');
+  clearTimeout(_tt);_tt=setTimeout(()=>el.classList.remove('show'),1800);
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function render(){
+  // Update all stat displays (portrait + landscape)
+  document.getElementById('s-moves').textContent=moves;
+  document.getElementById('s-sets').textContent=sets;
+  document.getElementById('sb-moves').textContent=moves;
+  document.getElementById('sb-sets').textContent=sets;
+
+  // Deal buttons
+  const dl=Math.floor(stock.length/10);
+  ['btn-deal','sb-deal'].forEach(id=>{
+    const b=document.getElementById(id);
+    b.disabled=dl===0;
+    b.textContent=dl>0?'Deal ('+dl+')':'No Deals';
+  });
+
+  const board=document.getElementById('board');
+  board.innerHTML='';
+
+  const vw=window.innerWidth;
+  const isLandscape=window.innerHeight<600&&window.innerWidth>window.innerHeight;
+  const sidebarW=isLandscape?72:0;
+  const cardW=(vw-sidebarW-12-36)/10;
+  const cardH=cardW*7/5;
+  const boardH=board.clientHeight||(window.innerHeight-(isLandscape?0:160));
+
+  cols.forEach((col,c)=>{
+    const colEl=document.createElement('div');
+    colEl.className='col';
+
+    if(col.length===0){
+      const slot=document.createElement('div');
+      const isHD=hint&&hint.toC===c;
+      slot.className='empty-slot'+(sel?' can-drop':'')+(isHD?' hint-dest':'');
+      slot.onclick=()=>clickEmpty(c);
+      colEl.appendChild(slot);board.appendChild(colEl);return;
+    }
+
+    const n=col.length;
+    let overlap=0;
+    if(n>1){const ideal=(boardH-cardH)/(n-1)-cardH;overlap=Math.max(-cardH+4,Math.min(0,ideal));}
+
+    col.forEach((card,i)=>{
+      const wrapper=document.createElement('div');
+      wrapper.style.position='relative';
+      if(i>0)wrapper.style.marginTop=overlap+'px';
+      const el=document.createElement('div');
+      const fk=c+'-'+i;
+      const isFlip=flipSet.has(fk);
+      const isDeal=dealSet.has(c)&&i===col.length-1;
+
+      if(!card.faceUp){
+        el.className='card face-down'+(isFlip?' flipping':'');
+        if(isFlip){flipSet.delete(fk);el.addEventListener('animationend',()=>el.classList.remove('flipping'),{once:true});}
+      } else {
+        const isSel=sel&&sel.col===c&&sel.idx===i;
+        const inGrp=sel&&sel.col===c&&i>sel.idx&&isRun(c,sel.idx);
+        const iHS=hint&&hint.fromC===c&&hint.fromIdx===i;
+        const iHG=hint&&hint.fromC===c&&i>hint.fromIdx;
+        const iHD=hint&&hint.toC===c&&i===col.length-1;
+        let isTgt=false;
+        if(sel&&sel.col!==c&&i===col.length-1){const mv=cols[sel.col][sel.idx];if(mv)isTgt=canPlace(mv.v,card.v);}
+
+        el.className='card'+(isSel?' selected':'')+(inGrp?' in-group':'')+(isTgt?' can-drop':'')
+          +(iHS?' hint-src':'')+(iHG?' hint-src-grp':'')+(iHD?' hint-dest':'')
+          +(isFlip?' flipping':'')+(isDeal?' dealing':'');
+
+        if(isFlip){flipSet.delete(fk);el.addEventListener('animationend',()=>el.classList.remove('flipping'),{once:true});}
+
+        const lbl=LABEL(card.v);
+        el.innerHTML='<div class="card-label">'+lbl+'</div><div class="card-suit">♠</div><div class="card-label bot">'+lbl+'</div>';
+        el.onclick=()=>clickCard(c,i);
+      }
+      wrapper.appendChild(el);colEl.appendChild(wrapper);
+    });
+    board.appendChild(colEl);
+  });
+}
+
+// Re-render on orientation change
+window.addEventListener('resize', render);
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+newGame();
+</script>
+</body>
+</html>
